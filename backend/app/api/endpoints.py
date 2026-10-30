@@ -528,8 +528,116 @@ def trigger_evaluation_run(prompt_version: str = "v1"):
 
 
 # ---------------------------------------------------------
-# Dashboard Aggregate Summary
+# Dashboard Aggregate Summary & Reports Listing
 # ---------------------------------------------------------
+@router.get("/reports-list", summary="List all adverse event reports with latest assessment status")
+def get_reports_list(
+    q: Optional[str] = None,
+    route: Optional[str] = None,
+    limit: int = 50,
+    db: Session = Depends(get_db)
+):
+    query = db.query(AdverseEventReportModel).order_by(AdverseEventReportModel.created_at.desc())
+    if q:
+        search_filter = f"%{q.strip().lower()}%"
+        query = query.filter(
+            func.lower(AdverseEventReportModel.suspect_drug).like(search_filter) |
+            func.lower(AdverseEventReportModel.case_id).like(search_filter) |
+            func.lower(AdverseEventReportModel.reaction_description).like(search_filter)
+        )
+
+    reports = query.limit(limit).all()
+    results = []
+
+    for rep in reports:
+        latest_run = db.query(AgentRunModel).filter(AgentRunModel.report_id == rep.id).order_by(AgentRunModel.started_at.desc()).first()
+        assessment = latest_run.assessment if latest_run else None
+
+        if route and assessment and assessment.recommended_route != route:
+            continue
+
+        feedback = db.query(ReviewerFeedbackModel).filter(ReviewerFeedbackModel.run_id == latest_run.id).first() if latest_run else None
+
+        results.append({
+            "report_id": rep.id,
+            "case_id": rep.case_id,
+            "suspect_drug": rep.suspect_drug,
+            "product_identifier": rep.product_identifier,
+            "reaction_description": rep.reaction_description,
+            "patient_age": rep.patient_age,
+            "patient_sex": rep.patient_sex,
+            "is_serious": assessment.is_serious if assessment else rep.is_hospitalized or rep.is_death or rep.is_life_threatening or rep.is_disability,
+            "seriousness_criteria_met": assessment.seriousness_criteria_met if assessment else [],
+            "is_expected": assessment.is_expected if assessment else None,
+            "run_id": latest_run.id if latest_run else None,
+            "status": latest_run.status if latest_run else "queued",
+            "recommended_route": assessment.recommended_route if assessment else None,
+            "confidence_score": assessment.confidence_score if assessment else None,
+            "duration_ms": latest_run.total_duration_ms if latest_run else None,
+            "is_reviewed": feedback is not None,
+            "reviewer_satisfactory": feedback.satisfactory if feedback else None,
+            "created_at": rep.created_at.isoformat() if rep.created_at else None
+        })
+
+    return results
+
+
+@router.get("/review-queue", summary="List cases in need of QPPV review or escalation")
+def get_review_queue(
+    filter_type: Optional[str] = "pending",  # pending, all, reviewed
+    db: Session = Depends(get_db)
+):
+    runs_query = db.query(AgentRunModel).filter(
+        AgentRunModel.status.in_(["completed", "escalated"])
+    ).order_by(AgentRunModel.started_at.desc())
+
+    runs = runs_query.limit(50).all()
+    queue_items = []
+
+    for r in runs:
+        fb = db.query(ReviewerFeedbackModel).filter(ReviewerFeedbackModel.run_id == r.id).first()
+        is_reviewed = fb is not None
+
+        if filter_type == "pending" and is_reviewed:
+            continue
+        if filter_type == "reviewed" and not is_reviewed:
+            continue
+
+        rep = r.report
+        a = r.assessment
+        if not rep:
+            continue
+
+        queue_items.append({
+            "run_id": r.id,
+            "case_id": rep.case_id,
+            "suspect_drug": rep.suspect_drug,
+            "product_identifier": rep.product_identifier,
+            "reaction_description": rep.reaction_description,
+            "patient_age": rep.patient_age,
+            "patient_sex": rep.patient_sex,
+            "status": r.status,
+            "escalation_required": a.escalation_required if a else r.status == "escalated",
+            "escalation_reason": r.escalation_reason or (a.escalation_reason if a else None),
+            "is_serious": a.is_serious if a else False,
+            "is_expected": a.is_expected if a else False,
+            "recommended_route": a.recommended_route if a else "human_review_required",
+            "confidence_score": a.confidence_score if a else 0.5,
+            "citations_count": len(a.citations) if a and a.citations else 0,
+            "is_reviewed": is_reviewed,
+            "review": {
+                "satisfactory": fb.satisfactory,
+                "rating": fb.rating,
+                "reason": fb.feedback_reason,
+                "reviewer_role": fb.reviewer_role,
+                "created_at": fb.created_at.isoformat()
+            } if fb else None,
+            "created_at": r.started_at.isoformat() if r.started_at else None
+        })
+
+    return queue_items
+
+
 @router.get("/dashboard/stats", summary="Overview statistics for main dashboard")
 def get_dashboard_stats(db: Session = Depends(get_db)):
     total_reports = db.query(AdverseEventReportModel).count()
@@ -539,6 +647,18 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
     queued_runs = db.query(AgentRunModel).filter(AgentRunModel.status.in_(["queued", "running"])).count()
     failed_runs = db.query(AgentRunModel).filter(AgentRunModel.status == "failed").count()
     quarantined_count = db.query(QuarantinedSubmissionModel).count()
+
+    # Serious cases count
+    serious_cases = db.query(AssessmentResultModel).filter(AssessmentResultModel.is_serious == True).count()
+
+    # Pending reviews (cases escalated or completed without reviewer feedback)
+    reviewed_run_ids = [r[0] for r in db.query(ReviewerFeedbackModel.run_id).all()]
+    pending_reviews_query = db.query(AgentRunModel).filter(
+        AgentRunModel.status.in_(["completed", "escalated"])
+    )
+    if reviewed_run_ids:
+        pending_reviews_query = pending_reviews_query.filter(~AgentRunModel.id.in_(reviewed_run_ids))
+    pending_reviews = pending_reviews_query.count()
 
     # p50 & p95 latency
     durations = [
@@ -559,7 +679,7 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
     ).group_by(AssessmentResultModel.recommended_route).all()
     route_counts = {r[0]: r[1] for r in routes}
 
-    recent_runs = db.query(AgentRunModel).order_by(AgentRunModel.started_at.desc()).limit(10).all()
+    recent_runs = db.query(AgentRunModel).order_by(AgentRunModel.started_at.desc()).limit(15).all()
 
     pipeline = IngestionPipeline()
     corpus_status = pipeline.get_status()
@@ -569,6 +689,8 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
         "total_runs": total_runs,
         "completed_runs": completed_runs,
         "escalated_runs": escalated_runs,
+        "pending_reviews": pending_reviews,
+        "serious_cases": serious_cases,
         "queued_runs": queued_runs,
         "failed_runs": failed_runs,
         "quarantined_count": quarantined_count,
@@ -582,6 +704,10 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
                 "run_id": r.id,
                 "case_id": r.report.case_id if r.report else None,
                 "suspect_drug": r.report.suspect_drug if r.report else None,
+                "reaction_description": r.report.reaction_description if r.report else None,
+                "is_serious": r.assessment.is_serious if r.assessment else (
+                    (r.report.is_hospitalized or r.report.is_death or r.report.is_life_threatening or r.report.is_disability) if r.report else False
+                ),
                 "status": r.status,
                 "route": r.assessment.recommended_route if r.assessment else None,
                 "duration_ms": r.total_duration_ms,

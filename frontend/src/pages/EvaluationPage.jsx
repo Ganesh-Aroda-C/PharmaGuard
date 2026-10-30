@@ -87,7 +87,7 @@ export default function EvaluationPage() {
       {evaluating && (
         <div className="p-4 bg-sky-50 border border-sky-200 rounded-xl text-center text-xs text-sky-800 font-semibold flex items-center justify-center space-x-2">
           <Clock className="w-4 h-4 animate-spin text-sky-600" />
-          <span>Executing 20 synthetic clinical evaluation scenarios across LangGraph multi-agent pipeline...</span>
+          <span>Executing curated clinical evaluation benchmark scenarios across LangGraph multi-agent pipeline...</span>
         </div>
       )}
 

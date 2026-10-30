@@ -31,6 +31,8 @@ export async function fetchJson(endpoint, options = {}) {
 
 export const api = {
   getDashboardStats: () => fetchJson('/dashboard/stats'),
+  getReportsList: (params) => fetchJson('/reports-list' + (params ? '?' + new URLSearchParams(params) : '')),
+  getReviewQueue: (filterType = 'pending') => fetchJson(`/review-queue?filter_type=${filterType}`),
   submitReport: (report) => fetchJson('/reports', { method: 'POST', body: JSON.stringify(report) }),
   getRunStatus: (runId) => fetchJson(`/runs/${runId}`),
   getRunTrace: (runId) => fetchJson(`/runs/${runId}/trace`),

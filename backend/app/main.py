@@ -90,8 +90,7 @@ else:
     @app.get("/", summary="Root index")
     def root_index():
         return {
-            "service": "Pharmacovigilance Adverse Event Intake and Triage Service",
-            "course": "UE24AM342AA5 - ML System Design and AgentOps",
+            "service": "PharmaGuard – Pharmacovigilance Adverse Event Intake and Triage Service",
             "documentation": "/docs",
             "health": "/api/v1/health",
             "metrics": "/api/v1/metrics",

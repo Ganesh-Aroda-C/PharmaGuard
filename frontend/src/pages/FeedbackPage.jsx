@@ -30,7 +30,7 @@ export default function FeedbackPage() {
     <div className="max-w-4xl mx-auto space-y-6">
       {/* Header */}
       <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
-        <h2 className="text-base font-bold text-slate-900">Reviewer Quality Assurance & Feedback (L6 Requirement)</h2>
+        <h2 className="text-base font-bold text-slate-900">Reviewer Quality Assurance &amp; Feedback Audit</h2>
         <p className="text-xs text-slate-500 mt-1">
           Pharmacovigilance reviewers rate assessment accuracy, audit statutory routing, and submit clinical challenges.
         </p>
