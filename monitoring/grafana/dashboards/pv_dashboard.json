@@ -1,0 +1,112 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "title": "Adverse Event Submissions Throughput (Boundary)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(pv_report_submissions_total)",
+          "legendFormat": "Total Submissions"
+        }
+      ]
+    },
+    {
+      "title": "Completed Multi-Agent Triage Runs",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(pv_agent_runs_total{status='completed'})",
+          "legendFormat": "Completed Runs"
+        }
+      ]
+    },
+    {
+      "title": "Human Pharmacovigilance Escalations",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(pv_agent_runs_total{status='escalated'})",
+          "legendFormat": "Escalated Cases"
+        }
+      ]
+    },
+    {
+      "title": "Circuit Breaker State (0=Closed, 2=Open)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "targets": [
+        {
+          "expr": "pv_circuit_breaker_state",
+          "legendFormat": "Circuit State"
+        }
+      ]
+    },
+    {
+      "title": "End-to-End Run Latency (p50 & p95 vs Declared 10s SLO)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(pv_run_latency_seconds_bucket[1m])) by (le))",
+          "legendFormat": "p50 Latency"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(pv_run_latency_seconds_bucket[1m])) by (le))",
+          "legendFormat": "p95 Latency"
+        }
+      ]
+    },
+    {
+      "title": "Dynamic Agent Tool Invocations",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "targets": [
+        {
+          "expr": "sum(rate(pv_tool_calls_total[1m])) by (tool_name)",
+          "legendFormat": "{{tool_name}}"
+        }
+      ]
+    },
+    {
+      "title": "Token Spend and Cumulative LLM Cost ($ USD)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "targets": [
+        {
+          "expr": "pv_estimated_cost_usd_total",
+          "legendFormat": "Cumulative Spend ($)"
+        }
+      ]
+    },
+    {
+      "title": "Agent Reasoning Step Latencies",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "targets": [
+        {
+          "expr": "sum(rate(pv_agent_step_duration_seconds_sum[1m])) by (step_name)",
+          "legendFormat": "{{step_name}}"
+        }
+      ]
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["pharmacovigilance", "langgraph", "agentops"],
+  "time": { "from": "now-15m", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Pharmacovigilance AgentOps & Service Health",
+  "uid": "pv-service-main"
+}

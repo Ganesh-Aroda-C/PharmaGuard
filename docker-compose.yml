@@ -1,0 +1,138 @@
+version: '3.8'
+
+services:
+  # 1. PostgreSQL Persistent Store
+  postgres:
+    image: postgres:15-alpine
+    container_name: pv-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pvuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pvpassword}
+      POSTGRES_DB: ${POSTGRES_DB:-pvdb}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pvuser -d pvdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 2. Redis Message Broker & Cache
+  redis:
+    image: redis:7-alpine
+    container_name: pv-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # 3. FastAPI Intake & Status API
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: pv-api
+    restart: unless-stopped
+    command: ["python", "-m", "backend.app.main"]
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql+psycopg://${POSTGRES_USER:-pvuser}:${POSTGRES_PASSWORD:-pvpassword}@postgres:5432/${POSTGRES_DB:-pvdb}
+      - REDIS_URL=redis://redis:6379/0
+      - USE_CELERY=true
+      - LLM_PROVIDER=${LLM_PROVIDER:-deterministic_stub}
+      - LLM_STUB_DELAY_SECONDS=0.05
+      - SLO_P95_SECONDS=10.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/v1/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # 4. Celery Worker (Supports: docker compose up --scale worker=3)
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    command: ["celery", "-A", "backend.app.tasks.worker.celery_app", "worker", "--loglevel=INFO", "-c", "2"]
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql+psycopg://${POSTGRES_USER:-pvuser}:${POSTGRES_PASSWORD:-pvpassword}@postgres:5432/${POSTGRES_DB:-pvdb}
+      - REDIS_URL=redis://redis:6379/0
+      - USE_CELERY=true
+      - LLM_PROVIDER=${LLM_PROVIDER:-deterministic_stub}
+      - LLM_STUB_DELAY_SECONDS=0.05
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # 5. React Web Application (Nginx)
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: pv-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # 6. Prometheus Metrics Collector
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: pv-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # 7. Grafana Metrics Dashboards
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: pv-grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+
+  # 8. Jaeger Distributed Tracing Collector & UI
+  jaeger:
+    image: jaegertracing/all-in-one:1.60
+    container_name: pv-jaeger
+    restart: unless-stopped
+    ports:
+      - "16686:16686" # Web UI
+      - "4317:4317"   # OTLP gRPC receiver
+      - "4318:4318"   # OTLP HTTP receiver
+
+volumes:
+  postgres_data:

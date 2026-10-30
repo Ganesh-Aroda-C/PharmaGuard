@@ -1,0 +1,36 @@
+[
+  {
+    "filename": "ndctr_2019_rules.pdf",
+    "sha256_checksum": "5225fa29580e5de68bf459bc0b478c4f61cd25288177dd518385c1f0314be00b",
+    "file_size_bytes": 4224,
+    "title": "The New Drugs and Clinical Trials Rules, 2019 (Adverse Event Reporting Provisions)",
+    "publisher": "Central Drugs Standard Control Organisation (CDSCO), Ministry of Health and Family Welfare, Govt of India",
+    "source_url": "https://cdsco.gov.in/opencms/opencms/system/modules/CDSCO.WEB/elements/download_file_division.jsp?num_id=NDAxMQ==",
+    "version": "2019.1",
+    "document_type": "regulatory_rules",
+    "jurisdiction": "India"
+  },
+  {
+    "filename": "ipc_pvpi_guidance_mah.pdf",
+    "sha256_checksum": "3c234196a617d1a33de0e84494a26b66a989ca7a821114f224619fcc5fdeebaf",
+    "file_size_bytes": 4399,
+    "title": "Indian Pharmacopoeia Commission Pharmacovigilance Guidance for Marketing Authorisation Holders",
+    "publisher": "National Coordination Centre, Pharmacovigilance Programme of India (PvPI), Indian Pharmacopoeia Commission",
+    "source_url": "https://ipc.gov.in/images/PvPI_Guidance_Document_for_MAHs.pdf",
+    "version": "2021.2",
+    "document_type": "guidance_document",
+    "jurisdiction": "India"
+  },
+  {
+    "filename": "carbamazepine_package_insert.pdf",
+    "sha256_checksum": "7111a8b0d2fc1ae0ddfdad3c1c3c7261be998df491f58aaeb6b1e61f3e8c17b5",
+    "file_size_bytes": 3764,
+    "title": "Approved Package Insert: Carbamazepine Tablets IP (Tegretol)",
+    "publisher": "CDSCO / Novartis India Limited (Approved Marketed Product Information)",
+    "source_url": "https://cdsco.gov.in/opencms/resources/UploadCDSCOWeb/2018/UploadAlertsFiles/carbamazepine_insert.pdf",
+    "version": "2020.3",
+    "document_type": "package_insert",
+    "drug_name": "Carbamazepine",
+    "brand_name": "Tegretol"
+  }
+]
