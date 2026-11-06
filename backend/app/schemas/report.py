@@ -59,10 +59,12 @@ class AdverseEventReportCreate(BaseModel):
     
     suspect_drug: str = Field(..., min_length=2, max_length=200, description="Name of the suspect pharmaceutical product")
     product_identifier: Optional[str] = Field(None, max_length=100, description="Brand name, NDC, or batch number")
+    dosage: Optional[str] = Field(None, max_length=100, description="Medication dosage (e.g. 200mg, 10mg/kg)")
+    frequency: Optional[str] = Field(None, max_length=100, description="Frequency (e.g. Once daily, Twice daily BD, PRN)")
     
     reaction_description: str = Field(..., min_length=5, max_length=2500, description="Reported adverse reaction in reporter's own words")
     
-    # Patient demographics
+    # Patient demographics (de-identified)
     patient_age: Optional[int] = Field(None, ge=0, le=130, description="Patient age in years")
     patient_age_group: Optional[str] = Field(None, max_length=32, description="e.g. adult, pediatric, elderly")
     patient_sex: PatientSex = Field(default=PatientSex.UNKNOWN)
@@ -87,9 +89,10 @@ class AdverseEventReportCreate(BaseModel):
     
     # Clinical outcome and context
     outcome: Outcome = Field(default=Outcome.UNKNOWN)
-    reporter_type: ReporterType = Field(default=ReporterType.CONSUMER)
+    reporter_type: ReporterType = Field(default=ReporterType.PHYSICIAN)
     source_type: SourceType = Field(default=SourceType.SPONTANEOUS)
     medical_history: Optional[str] = Field(None, max_length=2000)
+    supporting_clinical_notes: Optional[str] = Field(None, max_length=2000)
     concomitant_medications: Optional[List[str]] = Field(default_factory=list)
 
     @field_validator("suspect_drug", "reaction_description")

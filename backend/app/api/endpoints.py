@@ -17,7 +17,9 @@ from backend.app.database.models import (
     AssessmentResultModel,
     QuarantinedSubmissionModel,
     ReviewerFeedbackModel,
-    EvaluationRunModel
+    EvaluationRunModel,
+    AuthorizedDoctorModel,
+    AuditEventModel
 )
 from backend.app.schemas.report import (
     AdverseEventReportCreate,
@@ -25,6 +27,21 @@ from backend.app.schemas.report import (
     FeedbackCreate,
     FeedbackResponse,
     RunStatus
+)
+from backend.app.schemas.auth import (
+    DoctorLoginRequest,
+    DoctorLoginResponse,
+    DoctorProfile,
+    DoctorProvisionRequest,
+    AuditLogEntry
+)
+from backend.app.auth.security import (
+    hash_password,
+    verify_password,
+    create_access_token,
+    get_current_doctor,
+    require_role,
+    log_audit_event
 )
 from backend.app.guardrails.injection import GuardrailEngine
 from backend.app.guardrails.rate_limiter import rate_limiter
@@ -43,16 +60,176 @@ router = APIRouter(prefix="/api/v1")
 
 
 # ---------------------------------------------------------
+# Physician Authentication & Identity Endpoints
+# ---------------------------------------------------------
+@router.post("/auth/login", response_model=DoctorLoginResponse, summary="Physician & Specialist Portal Login")
+def doctor_login(
+    req: DoctorLoginRequest,
+    raw_request: Request,
+    db: Session = Depends(get_db)
+):
+    client_ip = raw_request.client.host if raw_request.client else "127.0.0.1"
+    doctor = db.query(AuthorizedDoctorModel).filter(
+        AuthorizedDoctorModel.email == req.email.strip().lower(),
+        AuthorizedDoctorModel.is_active == True
+    ).first()
+
+    if not doctor or not verify_password(req.password, doctor.password_hash):
+        log_audit_event(
+            db=db,
+            event_type="PHYSICIAN_LOGIN_FAILED",
+            actor=req.email,
+            ip_address=client_ip,
+            details={"reason": "Invalid credentials or unauthorized account"}
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials. Access restricted to authorized medical doctors."
+        )
+
+    token = create_access_token({
+        "sub": doctor.email,
+        "doctor_id": doctor.id,
+        "name": doctor.full_name,
+        "role": doctor.role,
+        "license": doctor.medical_license_number
+    })
+
+    log_audit_event(
+        db=db,
+        event_type="PHYSICIAN_LOGIN_SUCCESS",
+        actor=doctor.full_name,
+        actor_role=doctor.role,
+        resource_id=doctor.id,
+        action="LOGIN",
+        ip_address=client_ip,
+        details={"specialty": doctor.specialty, "institution": doctor.institution}
+    )
+
+    return DoctorLoginResponse(
+        access_token=token,
+        token_type="bearer",
+        doctor=DoctorProfile.model_validate(doctor)
+    )
+
+
+@router.get("/auth/me", response_model=DoctorProfile, summary="Get currently authenticated physician profile")
+def get_current_physician_profile(
+    current_doctor: AuthorizedDoctorModel = Depends(get_current_doctor)
+):
+    return DoctorProfile.model_validate(current_doctor)
+
+
+@router.post("/auth/logout", summary="Physician Portal Logout")
+def doctor_logout(
+    raw_request: Request,
+    current_doctor: AuthorizedDoctorModel = Depends(get_current_doctor),
+    db: Session = Depends(get_db)
+):
+    client_ip = raw_request.client.host if raw_request.client else "127.0.0.1"
+    log_audit_event(
+        db=db,
+        event_type="PHYSICIAN_LOGOUT",
+        actor=current_doctor.full_name,
+        actor_role=current_doctor.role,
+        resource_id=current_doctor.id,
+        action="LOGOUT",
+        ip_address=client_ip
+    )
+    return {"message": f"Session closed for {current_doctor.full_name}"}
+
+
+@router.post("/auth/provision-doctor", response_model=DoctorProfile, summary="Provision new authorized physician account (Admin Only)")
+def provision_new_doctor(
+    req: DoctorProvisionRequest,
+    raw_request: Request,
+    admin_doctor: AuthorizedDoctorModel = Depends(require_role(["admin", "qppv"])),
+    db: Session = Depends(get_db)
+):
+    existing = db.query(AuthorizedDoctorModel).filter(
+        (AuthorizedDoctorModel.email == req.email.strip().lower()) |
+        (AuthorizedDoctorModel.medical_license_number == req.medical_license_number.strip())
+    ).first()
+
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A doctor with this email or medical registration number already exists."
+        )
+
+    new_doc = AuthorizedDoctorModel(
+        email=req.email.strip().lower(),
+        password_hash=hash_password(req.password),
+        full_name=req.full_name.strip(),
+        medical_license_number=req.medical_license_number.strip(),
+        specialty=req.specialty.strip(),
+        institution=req.institution.strip(),
+        role=req.role.strip().lower(),
+        is_active=True
+    )
+    db.add(new_doc)
+    db.commit()
+    db.refresh(new_doc)
+
+    log_audit_event(
+        db=db,
+        event_type="DOCTOR_PROVISIONED",
+        actor=admin_doctor.full_name,
+        actor_role=admin_doctor.role,
+        resource_id=new_doc.id,
+        action="PROVISION",
+        ip_address=raw_request.client.host if raw_request.client else None,
+        details={
+            "provisioned_email": new_doc.email,
+            "role": new_doc.role,
+            "license": new_doc.medical_license_number
+        }
+    )
+
+    return DoctorProfile.model_validate(new_doc)
+
+
+@router.get("/audit-logs", response_model=List[AuditLogEntry], summary="Query system and clinical audit log trail")
+def get_audit_logs(
+    limit: int = 50,
+    event_type: Optional[str] = None,
+    current_doctor: AuthorizedDoctorModel = Depends(get_current_doctor),
+    db: Session = Depends(get_db)
+):
+    query = db.query(AuditEventModel).order_by(AuditEventModel.created_at.desc())
+    if event_type:
+        query = query.filter(AuditEventModel.event_type == event_type)
+    
+    logs = query.limit(limit).all()
+    return [
+        AuditLogEntry(
+            id=log.id,
+            correlation_id=log.correlation_id,
+            event_type=log.event_type,
+            actor=log.actor,
+            actor_role=log.actor_role,
+            resource_id=log.resource_id,
+            action=log.action,
+            ip_address=log.ip_address,
+            details=log.details or {},
+            created_at=log.created_at.isoformat() if log.created_at else ""
+        )
+        for log in logs
+    ]
+
+
+# ---------------------------------------------------------
 # F1 & F2: Strict Ingestion Boundary & Report Submission
 # ---------------------------------------------------------
 @router.post(
     "/reports",
     response_model=ReportSubmissionResponse,
     status_code=status.HTTP_202_ACCEPTED,
-    summary="Validate and submit synthetic adverse event report"
+    summary="Validate and submit physician clinical adverse event report"
 )
 async def submit_adverse_event_report(
     raw_request: Request,
+    current_doctor: AuthorizedDoctorModel = Depends(get_current_doctor),
     db: Session = Depends(get_db)
 ):
     """
@@ -168,6 +345,8 @@ async def submit_adverse_event_report(
         idempotency_key=report_in.idempotency_key,
         suspect_drug=report_in.suspect_drug,
         product_identifier=report_in.product_identifier,
+        dosage=report_in.dosage,
+        frequency=report_in.frequency,
         reaction_description=report_in.reaction_description,
         patient_age=report_in.patient_age,
         patient_age_group=report_in.patient_age_group,
@@ -187,6 +366,9 @@ async def submit_adverse_event_report(
         outcome=report_in.outcome.value,
         reporter_type=report_in.reporter_type.value,
         source_type=report_in.source_type.value,
+        attending_physician_id=current_doctor.id if current_doctor else None,
+        attending_physician_name=current_doctor.full_name if current_doctor else "Attending Physician",
+        attending_physician_license=current_doctor.medical_license_number if current_doctor else None,
         medical_history=report_in.medical_history,
         concomitant_medications=report_in.concomitant_medications,
         raw_payload=payload
@@ -210,6 +392,27 @@ async def submit_adverse_event_report(
 
     REPORT_SUBMISSIONS_TOTAL.labels(status="accepted").inc()
 
+    # Log Clinical Audit Trail Event
+    log_audit_event(
+        db=db,
+        event_type="CLINICAL_CASE_SUBMISSION",
+        actor=current_doctor.full_name if current_doctor else "Attending Physician",
+        actor_role=current_doctor.role if current_doctor else "physician",
+        resource_id=db_report.case_id,
+        action="CREATE_ADR_CASE",
+        ip_address=client_ip,
+        correlation_id=correlation_id,
+        details={
+            "suspect_drug": db_report.suspect_drug,
+            "product_identifier": db_report.product_identifier,
+            "patient_age": db_report.patient_age,
+            "patient_sex": db_report.patient_sex,
+            "is_serious": db_report.is_hospitalized or db_report.is_death or db_report.is_life_threatening or db_report.is_disability,
+            "dosage": db_report.dosage,
+            "frequency": db_report.frequency
+        }
+    )
+
     # Dispatch asynchronous execution
     dispatch_run_task(run_id)
 
@@ -227,7 +430,11 @@ async def submit_adverse_event_report(
 # Run Status & Results Polling Endpoint
 # ---------------------------------------------------------
 @router.get("/runs/{run_id}", summary="Retrieve current run status and assessment results")
-def get_run_status(run_id: str, db: Session = Depends(get_db)):
+def get_run_status(
+    run_id: str,
+    current_doctor: AuthorizedDoctorModel = Depends(get_current_doctor),
+    db: Session = Depends(get_db)
+):
     run = db.query(AgentRunModel).filter(AgentRunModel.id == run_id).first()
     if not run:
         raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found")
@@ -288,7 +495,11 @@ def get_run_status(run_id: str, db: Session = Depends(get_db)):
 # Trace Inspection Endpoint
 # ---------------------------------------------------------
 @router.get("/runs/{run_id}/trace", summary="Inspect detailed multi-agent execution trace")
-def get_run_trace(run_id: str, db: Session = Depends(get_db)):
+def get_run_trace(
+    run_id: str,
+    current_doctor: AuthorizedDoctorModel = Depends(get_current_doctor),
+    db: Session = Depends(get_db)
+):
     run = db.query(AgentRunModel).filter(AgentRunModel.id == run_id).first()
     if not run:
         raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found")
@@ -370,21 +581,42 @@ def get_report(report_id: str, db: Session = Depends(get_db)):
 # Feedback Endpoints
 # ---------------------------------------------------------
 @router.post("/feedback", response_model=FeedbackResponse, summary="Submit reviewer feedback on assessment")
-def create_feedback(feedback_in: FeedbackCreate, db: Session = Depends(get_db)):
+def create_feedback(
+    feedback_in: FeedbackCreate,
+    current_doctor: AuthorizedDoctorModel = Depends(require_role(["qppv", "physician", "admin"])),
+    db: Session = Depends(get_db)
+):
     run = db.query(AgentRunModel).filter(AgentRunModel.id == feedback_in.run_id).first()
     if not run:
         raise HTTPException(status_code=404, detail=f"Run '{feedback_in.run_id}' not found")
 
+    reviewer_title = feedback_in.reviewer_role or current_doctor.role
     fb = ReviewerFeedbackModel(
         run_id=feedback_in.run_id,
         satisfactory=feedback_in.satisfactory,
         rating=feedback_in.rating,
         feedback_reason=feedback_in.feedback_reason,
-        reviewer_role=feedback_in.reviewer_role
+        reviewer_role=f"{current_doctor.full_name} ({reviewer_title})" if current_doctor else reviewer_title
     )
     db.add(fb)
     db.commit()
     db.refresh(fb)
+
+    # Log Clinical Review & Sign-Off Audit Trail Event
+    log_audit_event(
+        db=db,
+        event_type="QPPV_REVIEW_RECORDED",
+        actor=current_doctor.full_name if current_doctor else "Pharmacovigilance Reviewer",
+        actor_role=current_doctor.role if current_doctor else "qppv",
+        resource_id=feedback_in.run_id,
+        action="AUTHORIZE_ASSESSMENT" if feedback_in.satisfactory else "CHALLENGE_ASSESSMENT",
+        details={
+            "satisfactory": feedback_in.satisfactory,
+            "rating": feedback_in.rating,
+            "feedback_reason": feedback_in.feedback_reason,
+            "reviewer_license": current_doctor.medical_license_number if current_doctor else None
+        }
+    )
 
     return FeedbackResponse(
         feedback_id=fb.id,
@@ -535,6 +767,7 @@ def get_reports_list(
     q: Optional[str] = None,
     route: Optional[str] = None,
     limit: int = 50,
+    current_doctor: AuthorizedDoctorModel = Depends(get_current_doctor),
     db: Session = Depends(get_db)
 ):
     query = db.query(AdverseEventReportModel).order_by(AdverseEventReportModel.created_at.desc())
@@ -563,6 +796,9 @@ def get_reports_list(
             "case_id": rep.case_id,
             "suspect_drug": rep.suspect_drug,
             "product_identifier": rep.product_identifier,
+            "dosage": rep.dosage,
+            "frequency": rep.frequency,
+            "attending_physician": rep.attending_physician_name or "Attending Physician",
             "reaction_description": rep.reaction_description,
             "patient_age": rep.patient_age,
             "patient_sex": rep.patient_sex,
@@ -585,6 +821,7 @@ def get_reports_list(
 @router.get("/review-queue", summary="List cases in need of QPPV review or escalation")
 def get_review_queue(
     filter_type: Optional[str] = "pending",  # pending, all, reviewed
+    current_doctor: AuthorizedDoctorModel = Depends(get_current_doctor),
     db: Session = Depends(get_db)
 ):
     runs_query = db.query(AgentRunModel).filter(
@@ -613,6 +850,9 @@ def get_review_queue(
             "case_id": rep.case_id,
             "suspect_drug": rep.suspect_drug,
             "product_identifier": rep.product_identifier,
+            "dosage": rep.dosage,
+            "frequency": rep.frequency,
+            "attending_physician": rep.attending_physician_name or "Attending Physician",
             "reaction_description": rep.reaction_description,
             "patient_age": rep.patient_age,
             "patient_sex": rep.patient_sex,

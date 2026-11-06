@@ -22,6 +22,10 @@ class AdverseEventReportModel(Base):
     product_identifier = Column(String(100), nullable=True)
     reaction_description = Column(Text, nullable=False)
     
+    # Clinical dosage and frequency
+    dosage = Column(String(100), nullable=True)
+    frequency = Column(String(100), nullable=True)
+
     patient_age = Column(Integer, nullable=True)
     patient_age_group = Column(String(32), nullable=True)
     patient_sex = Column(String(32), nullable=True)
@@ -42,9 +46,14 @@ class AdverseEventReportModel(Base):
     hospitalization_discharge_date = Column(String(32), nullable=True)
     
     outcome = Column(String(32), default="unknown")
-    reporter_type = Column(String(32), default="consumer")
+    reporter_type = Column(String(32), default="physician")
     source_type = Column(String(32), default="spontaneous")
     
+    # Attending Physician metadata
+    attending_physician_id = Column(String(36), nullable=True, index=True)
+    attending_physician_name = Column(String(128), nullable=True)
+    attending_physician_license = Column(String(64), nullable=True)
+
     medical_history = Column(Text, nullable=True)
     concomitant_medications = Column(JSON, default=list)
     raw_payload = Column(JSON, nullable=True)
@@ -206,12 +215,31 @@ class EvaluationRunModel(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class AuthorizedDoctorModel(Base):
+    __tablename__ = "authorized_doctors"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    email = Column(String(128), unique=True, nullable=False, index=True)
+    password_hash = Column(String(256), nullable=False)
+    full_name = Column(String(128), nullable=False)
+    medical_license_number = Column(String(64), unique=True, nullable=False, index=True)
+    specialty = Column(String(128), nullable=False)
+    institution = Column(String(255), nullable=False)
+    role = Column(String(32), default="physician", index=True)  # physician, qppv, admin
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
 class AuditEventModel(Base):
     __tablename__ = "audit_events"
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
     correlation_id = Column(String(64), nullable=True, index=True)
-    event_type = Column(String(64), nullable=False, index=True)
-    actor = Column(String(64), default="system")
+    event_type = Column(String(64), nullable=False, index=True)  # LOGIN, CASE_CREATED, ASSESSMENT_RUN, REVIEW_RECORDED, DOCTOR_PROVISIONED
+    actor = Column(String(128), default="system")
+    actor_role = Column(String(64), nullable=True)  # physician, qppv, admin, system
+    resource_id = Column(String(64), nullable=True, index=True)
+    action = Column(String(64), nullable=True)
+    ip_address = Column(String(64), nullable=True)
     details = Column(JSON, default=dict)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)

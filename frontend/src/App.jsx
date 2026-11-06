@@ -1,19 +1,30 @@
 import React, { useState, useEffect } from 'react';
 import Navbar from './components/Navbar';
 import DemoModal from './components/DemoModal';
+import DoctorLoginModal from './components/DoctorLoginModal';
 import DashboardOverview from './pages/DashboardOverview';
 import ReportSubmission from './pages/ReportSubmission';
 import ReportsList from './pages/ReportsList';
 import ReviewQueue from './pages/ReviewQueue';
 import AssessmentResults from './pages/AssessmentResults';
+import EvidenceResearchPage from './pages/EvidenceResearchPage';
+import AuditLogsPage from './pages/AuditLogsPage';
+import DoctorProfileSettings from './pages/DoctorProfileSettings';
 import TraceInspector from './pages/TraceInspector';
 import EvaluationPage from './pages/EvaluationPage';
 import ObservabilityPage from './pages/ObservabilityPage';
-import FeedbackPage from './pages/FeedbackPage';
-import SettingsPage from './pages/SettingsPage';
 import { api } from './api/client';
 
 export default function App() {
+  const [currentDoctor, setCurrentDoctor] = useState(() => {
+    try {
+      const saved = localStorage.getItem('pharmaguard_doctor_profile');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
   const [activeTab, setActiveTab] = useState('dashboard');
   const [dashboardStats, setDashboardStats] = useState(null);
   const [circuitStatus, setCircuitStatus] = useState(null);
@@ -23,12 +34,38 @@ export default function App() {
   const [isDemoModalOpen, setIsDemoModalOpen] = useState(false);
   const [loadedPreset, setLoadedPreset] = useState(null);
 
+  // Check and sync doctor authentication on mount
+  useEffect(() => {
+    const handleAuthExpired = () => setCurrentDoctor(null);
+    window.addEventListener('pharmaguard_auth_expired', handleAuthExpired);
+
+    const verifyAuth = async () => {
+      const token = localStorage.getItem('pharmaguard_doctor_token');
+      if (token) {
+        try {
+          const profile = await api.getCurrentDoctor();
+          setCurrentDoctor(profile);
+          localStorage.setItem('pharmaguard_doctor_profile', JSON.stringify(profile));
+        } catch {
+          setCurrentDoctor(null);
+          localStorage.removeItem('pharmaguard_doctor_token');
+          localStorage.removeItem('pharmaguard_doctor_profile');
+        }
+      }
+    };
+    verifyAuth();
+
+    return () => window.removeEventListener('pharmaguard_auth_expired', handleAuthExpired);
+  }, []);
+
   // Poll status & telemetry every 5 seconds
   useEffect(() => {
-    refreshAllStatus();
-    const interval = setInterval(refreshAllStatus, 5000);
-    return () => clearInterval(interval);
-  }, []);
+    if (currentDoctor) {
+      refreshAllStatus();
+      const interval = setInterval(refreshAllStatus, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [currentDoctor]);
 
   const refreshAllStatus = async () => {
     try {
@@ -43,6 +80,23 @@ export default function App() {
     } catch (e) {
       console.error('Error refreshing status:', e);
     }
+  };
+
+  const handleLoginSuccess = (doctor) => {
+    setCurrentDoctor(doctor);
+    setActiveTab('dashboard');
+    refreshAllStatus();
+  };
+
+  const handleLogout = async () => {
+    try {
+      await api.logoutDoctor();
+    } catch (e) {
+      console.error('Logout error:', e);
+    }
+    localStorage.removeItem('pharmaguard_doctor_token');
+    localStorage.removeItem('pharmaguard_doctor_profile');
+    setCurrentDoctor(null);
   };
 
   const handleSelectRun = async (runId) => {
@@ -78,6 +132,11 @@ export default function App() {
     setActiveTab('submit');
   };
 
+  // If not authenticated as doctor, show DoctorLoginModal
+  if (!currentDoctor) {
+    return <DoctorLoginModal onLoginSuccess={handleLoginSuccess} />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col text-slate-800">
       <Navbar
@@ -86,7 +145,9 @@ export default function App() {
         circuitStatus={circuitStatus}
         corpusStatus={corpusStatus}
         pendingCount={dashboardStats?.pending_reviews || 0}
+        currentDoctor={currentDoctor}
         onOpenDemoModal={() => setIsDemoModalOpen(true)}
+        onLogout={handleLogout}
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -96,6 +157,7 @@ export default function App() {
             onSelectRun={handleSelectRun}
             onNavigateTab={setActiveTab}
             onOpenDemoModal={() => setIsDemoModalOpen(true)}
+            currentDoctor={currentDoctor}
           />
         )}
 
@@ -105,6 +167,7 @@ export default function App() {
             initialPreset={loadedPreset}
             onOpenDemoModal={() => setIsDemoModalOpen(true)}
             onClearPreset={() => setLoadedPreset(null)}
+            currentDoctor={currentDoctor}
           />
         )}
 
@@ -115,6 +178,17 @@ export default function App() {
           />
         )}
 
+        {activeTab === 'evidence' && (
+          <EvidenceResearchPage />
+        )}
+
+        {activeTab === 'results' && (
+          <AssessmentResults
+            runData={selectedRunData}
+            onNavigateTrace={handleNavigateTrace}
+          />
+        )}
+
         {activeTab === 'queue' && (
           <ReviewQueue
             onSelectRun={handleSelectRun}
@@ -122,10 +196,17 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'results' && (
-          <AssessmentResults
-            runData={selectedRunData}
-            onNavigateTrace={handleNavigateTrace}
+        {activeTab === 'audit' && (
+          <AuditLogsPage />
+        )}
+
+        {activeTab === 'profile' && (
+          <DoctorProfileSettings
+            currentDoctor={currentDoctor}
+            circuitStatus={circuitStatus}
+            corpusStatus={corpusStatus}
+            onRefreshStatus={refreshAllStatus}
+            onLogout={handleLogout}
           />
         )}
 
@@ -144,21 +225,9 @@ export default function App() {
             stats={dashboardStats}
           />
         )}
-
-        {activeTab === 'feedback' && (
-          <FeedbackPage />
-        )}
-
-        {activeTab === 'settings' && (
-          <SettingsPage
-            circuitStatus={circuitStatus}
-            corpusStatus={corpusStatus}
-            onRefreshStatus={refreshAllStatus}
-          />
-        )}
       </main>
 
-      {/* Demo / Testing Scenarios Modal */}
+      {/* Clinical Test Scenarios Modal */}
       <DemoModal
         isOpen={isDemoModalOpen}
         onClose={() => setIsDemoModalOpen(false)}

@@ -1,15 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { 
   FileText, Send, Sparkles, AlertCircle, CheckCircle2, Clock, 
-  ShieldAlert, User, Pill, Stethoscope, AlertTriangle, Check, X
+  ShieldAlert, User, Pill, Stethoscope, AlertTriangle, Check, X, Building2, Calendar 
 } from 'lucide-react';
 import { api } from '../api/client';
 
-export default function ReportSubmission({ onRunStarted, initialPreset, onOpenDemoModal, onClearPreset }) {
+export default function ReportSubmission({ 
+  onRunStarted, 
+  initialPreset, 
+  onOpenDemoModal, 
+  onClearPreset,
+  currentDoctor 
+}) {
   const [formData, setFormData] = useState({
     suspect_drug: '',
     product_identifier: '',
     batch_number: '',
+    dosage: '',
+    frequency: '',
     reaction_description: '',
     patient_age: '',
     patient_sex: 'unknown',
@@ -17,6 +25,7 @@ export default function ReportSubmission({ onRunStarted, initialPreset, onOpenDe
     onset_relative_days: '',
     drug_start_date: '',
     drug_stop_date: '',
+    event_onset_date: '',
     outcome: 'unknown',
     is_death: false,
     is_life_threatening: false,
@@ -24,6 +33,9 @@ export default function ReportSubmission({ onRunStarted, initialPreset, onOpenDe
     is_disability: false,
     is_congenital_anomaly: false,
     is_other_medically_important: false,
+    hospitalization_admission_date: '',
+    hospitalization_discharge_date: '',
+    supporting_clinical_notes: '',
     reporter_type: 'physician',
     source_type: 'spontaneous',
     concomitant_medications_raw: '',
@@ -43,6 +55,8 @@ export default function ReportSubmission({ onRunStarted, initialPreset, onOpenDe
       setFormData(prev => ({
         ...prev,
         ...initialPreset.data,
+        dosage: initialPreset.data.dosage || '200mg',
+        frequency: initialPreset.data.frequency || 'Twice Daily (BD)',
         is_other_medically_important: initialPreset.data.is_medically_important || initialPreset.data.is_other_medically_important || false,
         medical_history: initialPreset.data.patient_medical_history || initialPreset.data.medical_history || '',
         idempotency_key: initialPreset.data.idempotency_key || `case-${Date.now()}`
@@ -51,24 +65,25 @@ export default function ReportSubmission({ onRunStarted, initialPreset, onOpenDe
     }
   }, [initialPreset]);
 
-  // Handle Form Change
   const handleChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  // Pre-submission validation
   const validate = () => {
     if (!formData.suspect_drug.trim()) {
       return 'Suspected medicinal product name is required.';
     }
     if (!formData.reaction_description.trim()) {
-      return 'Reported reaction description in reporter’s own words is required.';
+      return 'Reported clinical adverse reaction narrative is required.';
     }
     if (formData.reaction_description.trim().length < 5) {
-      return 'Reported reaction description must be at least 5 characters long.';
+      return 'Reaction description must be at least 5 characters long.';
     }
     if (formData.patient_age !== '' && (Number(formData.patient_age) < 0 || Number(formData.patient_age) > 130)) {
       return 'Patient age must be between 0 and 130 years.';
+    }
+    if (formData.drug_start_date && formData.drug_stop_date && formData.drug_stop_date < formData.drug_start_date) {
+      return 'Chronology Error: Drug discontinuation date cannot precede initiation date.';
     }
     return null;
   };
@@ -89,7 +104,6 @@ export default function ReportSubmission({ onRunStarted, initialPreset, onOpenDe
     setSubmitting(true);
     setSubmissionError(null);
 
-    // Map fields cleanly to AdverseEventReportCreate schema
     const payload = {
       suspect_drug: formData.suspect_drug.trim(),
       product_identifier: formData.product_identifier.trim() ? (
@@ -97,13 +111,17 @@ export default function ReportSubmission({ onRunStarted, initialPreset, onOpenDe
           ? `${formData.product_identifier.trim()} (Batch: ${formData.batch_number.trim()})`
           : formData.product_identifier.trim()
       ) : null,
+      dosage: formData.dosage.trim() || null,
+      frequency: formData.frequency.trim() || null,
       reaction_description: formData.reaction_description.trim(),
       patient_age: formData.patient_age !== '' ? parseInt(formData.patient_age, 10) : null,
       patient_sex: formData.patient_sex,
       medical_history: formData.medical_history.trim() || null,
+      supporting_clinical_notes: formData.supporting_clinical_notes.trim() || null,
       onset_relative_days: formData.onset_relative_days !== '' ? parseInt(formData.onset_relative_days, 10) : null,
       drug_start_date: formData.drug_start_date || null,
       drug_stop_date: formData.drug_stop_date || null,
+      event_onset_date: formData.event_onset_date || null,
       outcome: formData.outcome,
       is_death: !!formData.is_death,
       is_life_threatening: !!formData.is_life_threatening,
@@ -111,7 +129,9 @@ export default function ReportSubmission({ onRunStarted, initialPreset, onOpenDe
       is_disability: !!formData.is_disability,
       is_congenital_anomaly: !!formData.is_congenital_anomaly,
       is_other_medically_important: !!formData.is_other_medically_important,
-      reporter_type: formData.reporter_type,
+      hospitalization_admission_date: formData.hospitalization_admission_date || null,
+      hospitalization_discharge_date: formData.hospitalization_discharge_date || null,
+      reporter_type: 'physician',
       source_type: formData.source_type,
       concomitant_medications: formData.concomitant_medications_raw
         ? formData.concomitant_medications_raw.split(',').map(s => s.trim()).filter(Boolean)
@@ -122,13 +142,11 @@ export default function ReportSubmission({ onRunStarted, initialPreset, onOpenDe
     try {
       const response = await api.submitReport(payload);
       setActivePollRunId(response.run_id);
-      setPollStatus('Validating boundary schema & guardrails...');
-      
-      // Start honest polling for multi-agent completion
+      setPollStatus('Validating clinical schema & security guardrails...');
       pollRunCompletion(response.run_id);
     } catch (err) {
       setSubmitting(false);
-      setSubmissionError(err.message || 'Error submitting adverse event report.');
+      setSubmissionError(err.message || 'Error submitting clinical adverse event report.');
     }
   };
 
@@ -137,14 +155,13 @@ export default function ReportSubmission({ onRunStarted, initialPreset, onOpenDe
       try {
         const runData = await api.getRunStatus(runId);
         
-        // Multi-stage realistic progress indicator based on actual agent run state
         if (runData.status === 'queued') {
-          setPollStatus('Report accepted. Queuing multi-agent execution pipeline...');
+          setPollStatus('Clinical case accepted. Queuing LangGraph multi-agent pipeline...');
         } else if (runData.status === 'running') {
-          setPollStatus('Agent A researching regulatory corpus & Agent B assessing seriousness criteria...');
+          setPollStatus('Agent A extracting clinical facts & Agent B checking statutory seriousness...');
         } else if (runData.status === 'completed' || runData.status === 'escalated') {
           clearInterval(pollInterval);
-          setPollStatus('Assessment complete. Grounding verified against approved reference corpus.');
+          setPollStatus('Assessment complete. Evidence passages grounded against reference corpus.');
           setTimeout(() => {
             setSubmitting(false);
             if (onRunStarted) {
@@ -169,6 +186,8 @@ export default function ReportSubmission({ onRunStarted, initialPreset, onOpenDe
       suspect_drug: '',
       product_identifier: '',
       batch_number: '',
+      dosage: '',
+      frequency: '',
       reaction_description: '',
       patient_age: '',
       patient_sex: 'unknown',
@@ -176,6 +195,7 @@ export default function ReportSubmission({ onRunStarted, initialPreset, onOpenDe
       onset_relative_days: '',
       drug_start_date: '',
       drug_stop_date: '',
+      event_onset_date: '',
       outcome: 'unknown',
       is_death: false,
       is_life_threatening: false,
@@ -183,6 +203,9 @@ export default function ReportSubmission({ onRunStarted, initialPreset, onOpenDe
       is_disability: false,
       is_congenital_anomaly: false,
       is_other_medically_important: false,
+      hospitalization_admission_date: '',
+      hospitalization_discharge_date: '',
+      supporting_clinical_notes: '',
       reporter_type: 'physician',
       source_type: 'spontaneous',
       concomitant_medications_raw: '',
@@ -198,9 +221,14 @@ export default function ReportSubmission({ onRunStarted, initialPreset, onOpenDe
       {/* Header */}
       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">Submit Adverse Event Report</h1>
+          <div className="flex items-center space-x-2">
+            <h1 className="text-xl font-bold text-slate-900 tracking-tight">New ADR Clinical Assessment</h1>
+            <span className="text-xs px-2.5 py-0.5 rounded-full bg-sky-100 text-sky-800 font-semibold border border-sky-200">
+              Physician Intake
+            </span>
+          </div>
           <p className="text-xs text-slate-500 mt-1">
-            Enter the details of the suspected medicine and reported reaction.
+            Enter medication details, patient clinical presentation, and chronology for AI-grounded regulatory triage.
           </p>
         </div>
         <div className="flex items-center space-x-2">
@@ -210,10 +238,27 @@ export default function ReportSubmission({ onRunStarted, initialPreset, onOpenDe
             className="inline-flex items-center px-3.5 py-1.5 rounded-lg text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors"
           >
             <Sparkles className="w-3.5 h-3.5 mr-1.5 text-indigo-600" />
-            Demo / Testing Scenarios
+            Clinical Test Scenarios
           </button>
         </div>
       </div>
+
+      {/* Attending Physician Context Card */}
+      {currentDoctor && (
+        <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 text-xs">
+          <div className="flex items-center space-x-2.5">
+            <div className="p-2 rounded-lg bg-sky-100 text-sky-700">
+              <Stethoscope className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="text-slate-500">Attending Physician:</span>{' '}
+              <strong className="text-slate-900">{currentDoctor.full_name}</strong> &bull;{' '}
+              <span className="text-slate-600">Reg: {currentDoctor.medical_license_number}</span>
+            </div>
+          </div>
+          <span className="text-slate-500 italic">{currentDoctor.institution}</span>
+        </div>
+      )}
 
       {/* Preset Loaded Alert Banner */}
       {presetBanner && (
@@ -221,7 +266,7 @@ export default function ReportSubmission({ onRunStarted, initialPreset, onOpenDe
           <div className="flex items-center space-x-2">
             <Sparkles className="w-4 h-4 text-indigo-600 flex-shrink-0" />
             <span>
-              <strong>Demo Scenario Loaded:</strong> {presetBanner}
+              <strong>Clinical Scenario Loaded:</strong> {presetBanner}
             </span>
           </div>
           <button
@@ -253,36 +298,36 @@ export default function ReportSubmission({ onRunStarted, initialPreset, onOpenDe
           <Clock className="w-10 h-10 animate-spin text-sky-600 mx-auto" />
           <div>
             <h3 className="text-base font-bold text-slate-900">Multi-Agent Assessment In Progress</h3>
-            <p className="text-xs text-sky-700 font-medium mt-1">{pollStatus || 'Processing report...'}</p>
+            <p className="text-xs text-sky-700 font-medium mt-1">{pollStatus || 'Processing case...'}</p>
           </div>
           <div className="max-w-md mx-auto bg-slate-100 h-2 rounded-full overflow-hidden">
             <div className="bg-sky-600 h-full w-2/3 animate-pulse rounded-full"></div>
           </div>
           <p className="text-[11px] text-slate-500">
-            Agent A (Evidence Research) and Agent B (Seriousness &amp; Expectedness) are evaluating regulatory provisions...
+            Agent A (Evidence Research) and Agent B (Verification) are querying NDCTR 2019 &amp; product package inserts...
           </p>
         </div>
       )}
 
-      {/* Main 5-Section Form */}
+      {/* Main Clinical Form */}
       {!submitting && (
         <form onSubmit={handleOpenConfirm} className="space-y-6">
-          {/* SECTION A – MEDICINAL PRODUCT */}
+          {/* SECTION A – MEDICINAL PRODUCT & DOSAGE */}
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
             <div className="flex items-center space-x-2.5 pb-3 border-b border-slate-100">
               <div className="p-1.5 rounded-lg bg-sky-50 text-sky-700">
                 <Pill className="w-4 h-4" />
               </div>
               <div>
-                <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">Section A – Medicinal Product</h2>
-                <p className="text-xs text-slate-500">Specify the suspect drug and identification details</p>
+                <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">Section A – Suspected Medication &amp; Dosage</h2>
+                <p className="text-xs text-slate-500">Specify drug name, clinical dosage, frequency, and trade identifier</p>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-              <div className="md:col-span-1">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs">
+              <div className="md:col-span-2">
                 <label className="block font-semibold text-slate-700 mb-1">
-                  Suspected Medicinal Product <span className="text-rose-500">*</span>
+                  Suspected Drug / Generic (INN) Name <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
@@ -292,27 +337,43 @@ export default function ReportSubmission({ onRunStarted, initialPreset, onOpenDe
                   onChange={(e) => handleChange('suspect_drug', e.target.value)}
                   className="w-full px-3.5 py-2 rounded-lg border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-sky-500 text-slate-800"
                 />
-                <p className="text-[10px] text-slate-400 mt-1">Generic or INN name required for corpus matching</p>
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">
-                  Brand / Product Identifier
-                </label>
+                <label className="block font-semibold text-slate-700 mb-1">Dosage</label>
                 <input
                   type="text"
-                  placeholder="e.g. Tegretol 200mg Tablets"
+                  placeholder="e.g. 200mg, 10mg/kg"
+                  value={formData.dosage}
+                  onChange={(e) => handleChange('dosage', e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-lg border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-sky-500 text-slate-800"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Frequency / Regimen</label>
+                <input
+                  type="text"
+                  placeholder="e.g. BD (twice daily), OD"
+                  value={formData.frequency}
+                  onChange={(e) => handleChange('frequency', e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-lg border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-sky-500 text-slate-800"
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="block font-semibold text-slate-700 mb-1">Brand Name / Formulation</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Tegretol 200mg Tablets IP"
                   value={formData.product_identifier}
                   onChange={(e) => handleChange('product_identifier', e.target.value)}
                   className="w-full px-3.5 py-2 rounded-lg border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-sky-500 text-slate-800"
                 />
-                <p className="text-[10px] text-slate-400 mt-1">Commercial trade name or strength</p>
               </div>
 
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">
-                  Batch Number (if available)
-                </label>
+              <div className="md:col-span-2">
+                <label className="block font-semibold text-slate-700 mb-1">Batch / Lot Number (if available)</label>
                 <input
                   type="text"
                   placeholder="e.g. B2026-CBZ01"
@@ -320,20 +381,19 @@ export default function ReportSubmission({ onRunStarted, initialPreset, onOpenDe
                   onChange={(e) => handleChange('batch_number', e.target.value)}
                   className="w-full px-3.5 py-2 rounded-lg border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-sky-500 text-slate-800"
                 />
-                <p className="text-[10px] text-slate-400 mt-1">Manufacturing lot number</p>
               </div>
             </div>
           </div>
 
-          {/* SECTION B – PATIENT INFORMATION */}
+          {/* SECTION B – PATIENT INFORMATION (DE-IDENTIFIED) */}
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
             <div className="flex items-center space-x-2.5 pb-3 border-b border-slate-100">
               <div className="p-1.5 rounded-lg bg-sky-50 text-sky-700">
                 <User className="w-4 h-4" />
               </div>
               <div>
-                <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">Section B – Patient Information</h2>
-                <p className="text-xs text-slate-500">Demographic and relevant clinical background</p>
+                <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">Section B – Patient Information (Data Minimization)</h2>
+                <p className="text-xs text-slate-500">De-identified demographics and relevant clinical background</p>
               </div>
             </div>
 
@@ -369,7 +429,7 @@ export default function ReportSubmission({ onRunStarted, initialPreset, onOpenDe
                 <label className="block font-semibold text-slate-700 mb-1">Relevant Medical History</label>
                 <input
                   type="text"
-                  placeholder="e.g. Epilepsy, hypertension"
+                  placeholder="e.g. Newly diagnosed focal epilepsy"
                   value={formData.medical_history}
                   onChange={(e) => handleChange('medical_history', e.target.value)}
                   className="w-full px-3.5 py-2 rounded-lg border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-sky-500 text-slate-800"
@@ -378,35 +438,54 @@ export default function ReportSubmission({ onRunStarted, initialPreset, onOpenDe
             </div>
           </div>
 
-          {/* SECTION C – ADVERSE REACTION */}
+          {/* SECTION C – ADVERSE DRUG REACTION & CHRONOLOGY */}
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
             <div className="flex items-center space-x-2.5 pb-3 border-b border-slate-100">
               <div className="p-1.5 rounded-lg bg-sky-50 text-sky-700">
                 <Stethoscope className="w-4 h-4" />
               </div>
               <div>
-                <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">Section C – Adverse Reaction</h2>
-                <p className="text-xs text-slate-500">Detailed narrative and timeline of the reported event</p>
+                <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">Section C – Adverse Reaction &amp; Chronology</h2>
+                <p className="text-xs text-slate-500">Clinical description, dates of initiation and onset, and outcome</p>
               </div>
             </div>
 
             <div className="space-y-4 text-xs">
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">
-                  Reported Reaction in Reporter's Own Words <span className="text-rose-500">*</span>
+                  Reported Clinical Adverse Reaction Narrative <span className="text-rose-500">*</span>
                 </label>
                 <textarea
                   rows="3"
                   required
-                  placeholder="e.g. The patient's skin started peeling badly a week after starting the drug, and she was admitted to hospital with blistering lesions."
+                  placeholder="e.g. Patient developed progressive epidermal peeling with erythematous macules and mucosal erosions 7 days after starting treatment. Admitted for suspected Stevens-Johnson Syndrome."
                   value={formData.reaction_description}
                   onChange={(e) => handleChange('reaction_description', e.target.value)}
                   className="w-full px-3.5 py-2 rounded-lg border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-sky-500 text-slate-800"
                 />
-                <p className="text-[10px] text-slate-400 mt-1">Provide verbatim clinical or patient description</p>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Drug Start Date</label>
+                  <input
+                    type="date"
+                    value={formData.drug_start_date}
+                    onChange={(e) => handleChange('drug_start_date', e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-slate-800"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Reaction Onset Date</label>
+                  <input
+                    type="date"
+                    value={formData.event_onset_date}
+                    onChange={(e) => handleChange('event_onset_date', e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-slate-800"
+                  />
+                </div>
+
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">Relative Onset (Days)</label>
                   <input
@@ -415,9 +494,8 @@ export default function ReportSubmission({ onRunStarted, initialPreset, onOpenDe
                     placeholder="e.g. 7"
                     value={formData.onset_relative_days}
                     onChange={(e) => handleChange('onset_relative_days', e.target.value)}
-                    className="w-full px-3.5 py-2 rounded-lg border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-sky-500 text-slate-800"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-slate-800"
                   />
-                  <p className="text-[10px] text-slate-400 mt-1">Days between drug start and reaction</p>
                 </div>
 
                 <div>
@@ -425,7 +503,7 @@ export default function ReportSubmission({ onRunStarted, initialPreset, onOpenDe
                   <select
                     value={formData.outcome}
                     onChange={(e) => handleChange('outcome', e.target.value)}
-                    className="w-full px-3.5 py-2 rounded-lg border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-sky-500 text-slate-800 bg-white"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-slate-800 bg-white"
                   >
                     <option value="recovered">Recovered / Resolved</option>
                     <option value="recovering">Recovering / Resolving</option>
@@ -434,31 +512,30 @@ export default function ReportSubmission({ onRunStarted, initialPreset, onOpenDe
                     <option value="unknown">Unknown</option>
                   </select>
                 </div>
+              </div>
 
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Concomitant Medications</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Paracetamol, Clobazam"
-                    value={formData.concomitant_medications_raw}
-                    onChange={(e) => handleChange('concomitant_medications_raw', e.target.value)}
-                    className="w-full px-3.5 py-2 rounded-lg border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-sky-500 text-slate-800"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-1">Comma-separated list of other drugs</p>
-                </div>
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Concomitant Medications</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Clobazam 10mg, Paracetamol"
+                  value={formData.concomitant_medications_raw}
+                  onChange={(e) => handleChange('concomitant_medications_raw', e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-lg border border-slate-300 text-slate-800"
+                />
               </div>
             </div>
           </div>
 
-          {/* SECTION D – SERIOUSNESS INDICATORS */}
+          {/* SECTION D – CLINICAL SERIOUSNESS CRITERIA (ICH E2A / NDCTR 2019) */}
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
             <div className="flex items-center space-x-2.5 pb-3 border-b border-slate-100">
               <div className="p-1.5 rounded-lg bg-rose-50 text-rose-700">
                 <AlertTriangle className="w-4 h-4" />
               </div>
               <div>
-                <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">Section D – Seriousness Indicators (ICH E2A / NDCTR 2019)</h2>
-                <p className="text-xs text-slate-500">Select any regulatory seriousness criteria that apply to this event</p>
+                <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">Section D – Clinical Seriousness Indicators</h2>
+                <p className="text-xs text-slate-500">Statutory criteria triggering expedited review under NDCTR 2019 Rule 67(3)</p>
               </div>
             </div>
 
@@ -472,7 +549,7 @@ export default function ReportSubmission({ onRunStarted, initialPreset, onOpenDe
                   onChange={(e) => handleChange('is_hospitalized', e.target.checked)}
                   className="rounded text-rose-600 focus:ring-rose-500 h-4 w-4"
                 />
-                <span className="font-medium">Inpatient Hospitalization</span>
+                <span className="font-semibold">Inpatient Hospitalization</span>
               </label>
 
               <label className={`p-3 rounded-xl border flex items-center space-x-3 cursor-pointer transition-all ${
@@ -484,7 +561,7 @@ export default function ReportSubmission({ onRunStarted, initialPreset, onOpenDe
                   onChange={(e) => handleChange('is_life_threatening', e.target.checked)}
                   className="rounded text-rose-600 focus:ring-rose-500 h-4 w-4"
                 />
-                <span className="font-medium">Life-Threatening</span>
+                <span className="font-semibold">Life-Threatening</span>
               </label>
 
               <label className={`p-3 rounded-xl border flex items-center space-x-3 cursor-pointer transition-all ${
@@ -496,7 +573,7 @@ export default function ReportSubmission({ onRunStarted, initialPreset, onOpenDe
                   onChange={(e) => handleChange('is_death', e.target.checked)}
                   className="rounded text-rose-600 focus:ring-rose-500 h-4 w-4"
                 />
-                <span className="font-medium">Resulted in Death</span>
+                <span className="font-semibold">Resulted in Death</span>
               </label>
 
               <label className={`p-3 rounded-xl border flex items-center space-x-3 cursor-pointer transition-all ${
@@ -508,7 +585,7 @@ export default function ReportSubmission({ onRunStarted, initialPreset, onOpenDe
                   onChange={(e) => handleChange('is_disability', e.target.checked)}
                   className="rounded text-rose-600 focus:ring-rose-500 h-4 w-4"
                 />
-                <span className="font-medium">Persistent Disability / Incapacity</span>
+                <span className="font-semibold">Persistent Disability / Incapacity</span>
               </label>
 
               <label className={`p-3 rounded-xl border flex items-center space-x-3 cursor-pointer transition-all ${
@@ -520,7 +597,7 @@ export default function ReportSubmission({ onRunStarted, initialPreset, onOpenDe
                   onChange={(e) => handleChange('is_congenital_anomaly', e.target.checked)}
                   className="rounded text-rose-600 focus:ring-rose-500 h-4 w-4"
                 />
-                <span className="font-medium">Congenital Anomaly / Birth Defect</span>
+                <span className="font-semibold">Congenital Anomaly</span>
               </label>
 
               <label className={`p-3 rounded-xl border flex items-center space-x-3 cursor-pointer transition-all ${
@@ -532,53 +609,55 @@ export default function ReportSubmission({ onRunStarted, initialPreset, onOpenDe
                   onChange={(e) => handleChange('is_other_medically_important', e.target.checked)}
                   className="rounded text-rose-600 focus:ring-rose-500 h-4 w-4"
                 />
-                <span className="font-medium">Other Medically Important Event</span>
+                <span className="font-semibold">Other Medically Important Event</span>
               </label>
             </div>
+
+            {/* Hospitalization Dates (conditionally enabled) */}
+            {formData.is_hospitalized && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 text-xs">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Hospital Admission Date</label>
+                  <input
+                    type="date"
+                    value={formData.hospitalization_admission_date}
+                    onChange={(e) => handleChange('hospitalization_admission_date', e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-slate-800"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Hospital Discharge Date</label>
+                  <input
+                    type="date"
+                    value={formData.hospitalization_discharge_date}
+                    onChange={(e) => handleChange('hospitalization_discharge_date', e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-slate-800"
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* SECTION E – REPORTER INFORMATION */}
+          {/* SECTION E – SUPPORTING CLINICAL DOCUMENTATION */}
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
             <div className="flex items-center space-x-2.5 pb-3 border-b border-slate-100">
               <div className="p-1.5 rounded-lg bg-sky-50 text-sky-700">
                 <FileText className="w-4 h-4" />
               </div>
               <div>
-                <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">Section E – Reporter Information</h2>
-                <p className="text-xs text-slate-500">Source credentials and qualification</p>
+                <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">Section E – Clinical Lab Findings &amp; Diagnostic Notes</h2>
+                <p className="text-xs text-slate-500">Supporting clinical investigations, liver function, skin biopsy, or de-challenge notes</p>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">Reporter Type</label>
-                <select
-                  value={formData.reporter_type}
-                  onChange={(e) => handleChange('reporter_type', e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-lg border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-sky-500 text-slate-800 bg-white"
-                >
-                  <option value="physician">Physician / Medical Specialist</option>
-                  <option value="pharmacist">Pharmacist</option>
-                  <option value="other_hcp">Other Healthcare Professional</option>
-                  <option value="consumer">Consumer / Patient / Relative</option>
-                  <option value="literature">Scientific Literature</option>
-                  <option value="regulator">Regulatory Authority</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">Intake Source Channel</label>
-                <select
-                  value={formData.source_type}
-                  onChange={(e) => handleChange('source_type', e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-lg border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-sky-500 text-slate-800 bg-white"
-                >
-                  <option value="spontaneous">Spontaneous Notification</option>
-                  <option value="clinical_trial">Clinical Trial Protocol</option>
-                  <option value="post_marketing_study">Post-Marketing Surveillance Study</option>
-                  <option value="literature">Literature Search</option>
-                </select>
-              </div>
+            <div className="text-xs">
+              <textarea
+                rows="2"
+                placeholder="e.g. Skin biopsy showed full-thickness epidermal necrosis consistent with SJS. LFTs revealed elevated AST/ALT. Patient stabilized on IV fluids and methylprednisolone."
+                value={formData.supporting_clinical_notes}
+                onChange={(e) => handleChange('supporting_clinical_notes', e.target.value)}
+                className="w-full px-3.5 py-2 rounded-lg border border-slate-300 text-slate-800"
+              />
             </div>
           </div>
 
@@ -596,7 +675,7 @@ export default function ReportSubmission({ onRunStarted, initialPreset, onOpenDe
               className="inline-flex items-center px-6 py-2.5 rounded-xl text-xs font-bold text-white bg-sky-600 hover:bg-sky-700 shadow-sm transition-all"
             >
               <Send className="w-4 h-4 mr-2" />
-              Review &amp; Submit Case
+              Submit for AI Assessment &amp; Triage
             </button>
           </div>
         </form>
@@ -611,7 +690,7 @@ export default function ReportSubmission({ onRunStarted, initialPreset, onOpenDe
                 <ShieldAlert className="w-6 h-6" />
               </div>
               <div>
-                <h3 className="text-base font-bold text-slate-900">Confirm Report Submission</h3>
+                <h3 className="text-base font-bold text-slate-900">Confirm ADR Case Submission</h3>
                 <p className="text-xs text-slate-500">Initiate automated multi-agent assessment</p>
               </div>
             </div>
@@ -621,11 +700,21 @@ export default function ReportSubmission({ onRunStarted, initialPreset, onOpenDe
                 <span className="text-slate-500">Suspect Drug:</span>
                 <span className="font-semibold text-slate-800">{formData.suspect_drug}</span>
               </div>
+              {formData.dosage && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Dosage &amp; Frequency:</span>
+                  <span className="font-semibold text-slate-800">{formData.dosage} {formData.frequency ? `(${formData.frequency})` : ''}</span>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-slate-500">Patient:</span>
                 <span className="font-semibold text-slate-800">
                   {formData.patient_age ? `${formData.patient_age} yrs, ` : ''}{formData.patient_sex}
                 </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Attending Doctor:</span>
+                <span className="font-semibold text-slate-800">{currentDoctor?.full_name || 'Attending Physician'}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Seriousness:</span>
@@ -642,7 +731,7 @@ export default function ReportSubmission({ onRunStarted, initialPreset, onOpenDe
             </div>
 
             <p className="text-xs text-slate-600">
-              Submitting this case will trigger boundary validation, corpus retrieval across NDCTR 2019 / IPC PvPI provisions, and generate an evidence-grounded recommendation.
+              Submitting this case will trigger schema validation, dense vector search across NDCTR 2019 / IPC PvPI provisions, and generate an evidence-grounded recommendation for medical review.
             </p>
 
             <div className="flex items-center justify-end space-x-3 pt-2">

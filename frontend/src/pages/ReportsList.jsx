@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   FileSpreadsheet, Search, Filter, RefreshCw, ArrowRight, 
-  AlertTriangle, CheckCircle2, Clock, Inbox, PlusCircle 
+  AlertTriangle, CheckCircle2, Clock, Inbox, PlusCircle, Stethoscope 
 } from 'lucide-react';
 import { api } from '../api/client';
 
@@ -22,7 +22,7 @@ export default function ReportsList({ onSelectRun, onNavigateTab }) {
       const data = await api.getReportsList(params);
       setReports(data || []);
     } catch (err) {
-      setError(err.message || 'Error fetching reports list.');
+      setError(err.message || 'Error fetching clinical cases list.');
     } finally {
       setLoading(false);
     }
@@ -42,9 +42,14 @@ export default function ReportsList({ onSelectRun, onNavigateTab }) {
       {/* Header */}
       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">Reports &amp; Assessments</h1>
+          <div className="flex items-center space-x-2">
+            <h1 className="text-xl font-bold text-slate-900 tracking-tight">ADR Case Management</h1>
+            <span className="text-xs px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 font-semibold border border-slate-200">
+              Clinical Database
+            </span>
+          </div>
           <p className="text-xs text-slate-500 mt-1">
-            Complete database of adverse event cases, AI triage determinations, and review statuses
+            Complete database of adverse event cases, clinical dosage timelines, AI triage determinations, and review statuses
           </p>
         </div>
         <div className="flex items-center space-x-2.5">
@@ -53,7 +58,7 @@ export default function ReportsList({ onSelectRun, onNavigateTab }) {
             className="inline-flex items-center px-4 py-2 rounded-xl text-xs font-semibold text-white bg-sky-600 hover:bg-sky-700 shadow-sm transition-all"
           >
             <PlusCircle className="w-4 h-4 mr-1.5" />
-            New Report
+            New ADR Case
           </button>
           <button
             onClick={fetchReports}
@@ -108,7 +113,7 @@ export default function ReportsList({ onSelectRun, onNavigateTab }) {
         {loading ? (
           <div className="p-12 text-center text-slate-500">
             <Clock className="w-8 h-8 animate-spin mx-auto text-sky-600 mb-2" />
-            <p className="text-xs">Loading adverse event reports...</p>
+            <p className="text-xs">Loading adverse drug reaction cases...</p>
           </div>
         ) : error ? (
           <div className="p-8 text-center text-rose-600 text-xs">
@@ -116,7 +121,7 @@ export default function ReportsList({ onSelectRun, onNavigateTab }) {
           </div>
         ) : reports.length === 0 ? (
           <div className="p-12 text-center text-slate-400 text-xs">
-            No adverse event reports found matching your criteria.
+            No adverse event cases found matching your criteria.
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -124,8 +129,9 @@ export default function ReportsList({ onSelectRun, onNavigateTab }) {
               <thead className="bg-slate-50 text-slate-500 font-semibold uppercase tracking-wider text-[11px]">
                 <tr>
                   <th className="px-5 py-3.5 text-left">Case ID</th>
-                  <th className="px-5 py-3.5 text-left">Suspected Drug</th>
-                  <th className="px-5 py-3.5 text-left">Reported Reaction</th>
+                  <th className="px-5 py-3.5 text-left">Suspected Drug &amp; Regimen</th>
+                  <th className="px-5 py-3.5 text-left">Clinical Reaction</th>
+                  <th className="px-5 py-3.5 text-left">Attending Doctor</th>
                   <th className="px-5 py-3.5 text-left">Seriousness</th>
                   <th className="px-5 py-3.5 text-left">Recommended Route</th>
                   <th className="px-5 py-3.5 text-left">Confidence</th>
@@ -141,7 +147,6 @@ export default function ReportsList({ onSelectRun, onNavigateTab }) {
 
                   const isExpedited = item.recommended_route === 'expedited_report';
                   const isPeriodic = item.recommended_route === 'periodic_safety_report';
-                  const isEscalated = item.recommended_route === 'human_review_required' || item.status === 'escalated';
 
                   return (
                     <tr key={item.report_id} className="hover:bg-slate-50/80 transition-colors">
@@ -150,12 +155,20 @@ export default function ReportsList({ onSelectRun, onNavigateTab }) {
                       </td>
                       <td className="px-5 py-3.5">
                         <div className="font-semibold text-slate-900">{item.suspect_drug}</div>
+                        {(item.dosage || item.frequency) && (
+                          <div className="text-[11px] text-sky-700 font-medium">
+                            {item.dosage} {item.frequency ? `&bull; ${item.frequency}` : ''}
+                          </div>
+                        )}
                         {item.product_identifier && (
                           <div className="text-[10px] text-slate-400 truncate max-w-xs">{item.product_identifier}</div>
                         )}
                       </td>
                       <td className="px-5 py-3.5 text-slate-600 max-w-xs truncate" title={item.reaction_description}>
                         {item.reaction_description}
+                      </td>
+                      <td className="px-5 py-3.5 text-slate-700">
+                        <span className="font-medium">{item.attending_physician || 'Attending Physician'}</span>
                       </td>
                       <td className="px-5 py-3.5">
                         <span className={`px-2.5 py-0.5 rounded-full font-semibold text-[10px] ${

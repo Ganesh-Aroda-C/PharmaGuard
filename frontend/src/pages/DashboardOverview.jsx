@@ -1,16 +1,16 @@
 import React from 'react';
 import { 
   FileText, Clock, AlertTriangle, CheckCircle2, ArrowRight, 
-  PlusCircle, ShieldCheck, FileSearch, ArrowRightCircle, Sparkles, Inbox
+  PlusCircle, ShieldCheck, FileSearch, ArrowRightCircle, Sparkles, Inbox, Stethoscope, Building2
 } from 'lucide-react';
 
-export default function DashboardOverview({ stats, onSelectRun, onNavigateTab, onOpenDemoModal }) {
+export default function DashboardOverview({ stats, onSelectRun, onNavigateTab, onOpenDemoModal, currentDoctor }) {
   if (!stats) {
     return (
       <div className="flex flex-col items-center justify-center p-16 text-slate-500">
         <Clock className="w-8 h-8 animate-spin text-sky-600 mb-3" />
-        <p className="text-sm font-medium text-slate-700">Connecting to PharmaGuard API...</p>
-        <p className="text-xs text-slate-400 mt-1">Retrieving system telemetry and live case records</p>
+        <p className="text-sm font-medium text-slate-700">Connecting to PharmaGuard Clinical CDS...</p>
+        <p className="text-xs text-slate-400 mt-1">Retrieving verified clinical case records and telemetry</p>
       </div>
     );
   }
@@ -23,12 +23,23 @@ export default function DashboardOverview({ stats, onSelectRun, onNavigateTab, o
 
   return (
     <div className="space-y-6">
-      {/* Top Welcome & Quick Actions Bar */}
+      {/* Top Welcome & Doctor Status Banner */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-xs">
         <div>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">Pharmacovigilance Triage Dashboard</h1>
+          <div className="flex items-center space-x-2">
+            <h1 className="text-xl font-bold text-slate-900 tracking-tight">Clinical Pharmacovigilance Dashboard</h1>
+            <span className="text-xs px-2.5 py-0.5 rounded-full bg-sky-100 text-sky-800 font-bold border border-sky-200">
+              CDS Portal
+            </span>
+          </div>
           <p className="text-xs text-slate-500 mt-1">
-            Clinical decision support for adverse drug event intake, seriousness assessment, and regulatory triage
+            {currentDoctor ? (
+              <span>
+                Authenticated Doctor: <strong className="text-slate-800">{currentDoctor.full_name}</strong> &bull; {currentDoctor.specialty} ({currentDoctor.institution})
+              </span>
+            ) : (
+              'Authorized Clinical Decision Support for Adverse Drug Reaction Triage'
+            )}
           </p>
         </div>
         <div className="flex items-center space-x-2.5">
@@ -37,14 +48,14 @@ export default function DashboardOverview({ stats, onSelectRun, onNavigateTab, o
             className="inline-flex items-center px-4 py-2 rounded-xl text-xs font-semibold text-white bg-sky-600 hover:bg-sky-700 shadow-sm transition-all"
           >
             <PlusCircle className="w-4 h-4 mr-1.5" />
-            Create New Report
+            New ADR Case
           </button>
           <button
             onClick={onOpenDemoModal}
             className="inline-flex items-center px-3.5 py-2 rounded-xl text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-all"
           >
             <Sparkles className="w-4 h-4 mr-1.5 text-indigo-600" />
-            Demo Scenarios
+            Clinical Scenarios
           </button>
         </div>
       </div>
@@ -54,120 +65,115 @@ export default function DashboardOverview({ stats, onSelectRun, onNavigateTab, o
         {/* Total Reports */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs hover:border-slate-300 transition-colors">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Reports</span>
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total ADR Cases</span>
             <div className="p-2 rounded-lg bg-sky-50 text-sky-600">
               <FileText className="w-4 h-4" />
             </div>
           </div>
           <div className="text-3xl font-extrabold text-slate-900 mt-2">{totalReports}</div>
           <div className="text-xs text-slate-500 mt-1 flex items-center">
-            <span>Validated intake records</span>
+            <span>Validated clinical records</span>
           </div>
         </div>
 
         {/* Pending Reviews */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs hover:border-slate-300 transition-colors">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Pending Reviews</span>
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Pending QPPV Reviews</span>
             <div className="p-2 rounded-lg bg-amber-50 text-amber-600">
               <Inbox className="w-4 h-4" />
             </div>
           </div>
           <div className="text-3xl font-extrabold text-amber-600 mt-2">{pendingReviews}</div>
           <div className="text-xs text-amber-700 mt-1 flex items-center">
-            <span>Awaiting QPPV sign-off</span>
+            <span>Awaiting doctor sign-off</span>
           </div>
         </div>
 
         {/* Serious Cases */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs hover:border-slate-300 transition-colors">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Serious Cases</span>
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Serious Cases Flagged</span>
             <div className="p-2 rounded-lg bg-rose-50 text-rose-600">
               <AlertTriangle className="w-4 h-4" />
             </div>
           </div>
           <div className="text-3xl font-extrabold text-rose-600 mt-2">{seriousCases}</div>
           <div className="text-xs text-rose-700 mt-1 flex items-center">
-            <span>Hospitalization / Death / Disability</span>
+            <span>Hospitalization / Life-Threatening</span>
           </div>
         </div>
 
         {/* Completed Assessments */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs hover:border-slate-300 transition-colors">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Completed Assessments</span>
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Triaged Assessments</span>
             <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600">
               <CheckCircle2 className="w-4 h-4" />
             </div>
           </div>
           <div className="text-3xl font-extrabold text-emerald-600 mt-2">{completedAssessments}</div>
           <div className="text-xs text-emerald-700 mt-1 flex items-center">
-            <span>Evidence grounded &amp; triaged</span>
+            <span>Evidence grounded &amp; verified</span>
           </div>
         </div>
       </div>
 
-      {/* Simple Workflow Overview */}
+      {/* Clinical Decision Support Workflow Overview */}
       <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center">
             <ShieldCheck className="w-4 h-4 mr-2 text-sky-600" />
-            Pharmacovigilance Triage Lifecycle
+            Physician Clinical Decision Support Lifecycle
           </h2>
-          <span className="text-[11px] text-slate-500">Autonomous Multi-Agent Loop with Human Authorization</span>
+          <span className="text-[11px] text-slate-500">NDCTR 2019 Rule 67(3) &bull; IPC PvPI Guidelines</span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-5 gap-3 relative">
-          {/* Step 1 */}
           <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-center">
             <div className="w-7 h-7 mx-auto rounded-full bg-sky-100 text-sky-700 flex items-center justify-center font-bold text-xs mb-2">1</div>
-            <div className="text-xs font-bold text-slate-800">Report Received</div>
-            <div className="text-[11px] text-slate-500 mt-0.5">Boundary schema &amp; chronology validation</div>
+            <div className="text-xs font-bold text-slate-800">Clinical Intake</div>
+            <div className="text-[11px] text-slate-500 mt-0.5">Doctor records medication &amp; reaction</div>
           </div>
 
-          {/* Step 2 */}
           <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-center">
             <div className="w-7 h-7 mx-auto rounded-full bg-sky-100 text-sky-700 flex items-center justify-center font-bold text-xs mb-2">2</div>
-            <div className="text-xs font-bold text-slate-800">Assessment Processing</div>
-            <div className="text-[11px] text-slate-500 mt-0.5">Agent A extracts facts &amp; queries corpus</div>
+            <div className="text-xs font-bold text-slate-800">Agent A Research</div>
+            <div className="text-[11px] text-slate-500 mt-0.5">FAISS dense vector search over corpus</div>
           </div>
 
-          {/* Step 3 */}
           <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-center">
             <div className="w-7 h-7 mx-auto rounded-full bg-sky-100 text-sky-700 flex items-center justify-center font-bold text-xs mb-2">3</div>
-            <div className="text-xs font-bold text-slate-800">Evidence Verification</div>
-            <div className="text-[11px] text-slate-500 mt-0.5">Agent B checks seriousness &amp; citations</div>
+            <div className="text-xs font-bold text-slate-800">Agent B Verification</div>
+            <div className="text-[11px] text-slate-500 mt-0.5">Checks seriousness &amp; citation grounding</div>
           </div>
 
-          {/* Step 4 */}
           <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-center">
             <div className="w-7 h-7 mx-auto rounded-full bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-xs mb-2">4</div>
-            <div className="text-xs font-bold text-slate-800">Human Review</div>
-            <div className="text-[11px] text-slate-500 mt-0.5">Authorized QPPV clinical sign-off</div>
+            <div className="text-xs font-bold text-slate-800">QPPV Sign-Off</div>
+            <div className="text-[11px] text-slate-500 mt-0.5">Authorized doctor medical review</div>
           </div>
 
-          {/* Step 5 */}
           <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-center">
             <div className="w-7 h-7 mx-auto rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-xs mb-2">5</div>
-            <div className="text-xs font-bold text-slate-800">Completed</div>
-            <div className="text-[11px] text-slate-500 mt-0.5">Audited case record ready for submission</div>
+            <div className="text-xs font-bold text-slate-800">Regulatory Archive</div>
+            <div className="text-[11px] text-slate-500 mt-0.5">Immutable audit trail &bull; Expedited 14d</div>
           </div>
         </div>
       </div>
 
-      {/* Recent Reports Table */}
+      {/* Recent ADR Reports Table */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
         <div className="p-5 border-b border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
           <div>
-            <h3 className="text-sm font-bold text-slate-900">Recent Adverse Event Reports</h3>
-            <p className="text-xs text-slate-500 mt-0.5">Live case intake and assessment history</p>
+            <h3 className="text-sm font-bold text-slate-900">Recent Adverse Drug Reaction Cases</h3>
+            <p className="text-xs text-slate-500 mt-0.5">Active clinical cases under physician assessment</p>
           </div>
           <button
             onClick={() => onNavigateTab('reports')}
             className="text-xs font-semibold text-sky-600 hover:text-sky-800 inline-flex items-center"
           >
-            View All Reports &rarr;
+            Case Management &rarr;
           </button>
         </div>
 
@@ -178,9 +184,9 @@ export default function DashboardOverview({ stats, onSelectRun, onNavigateTab, o
                 <tr>
                   <th className="px-5 py-3.5 text-left">Case ID</th>
                   <th className="px-5 py-3.5 text-left">Suspected Drug</th>
-                  <th className="px-5 py-3.5 text-left">Reported Reaction</th>
+                  <th className="px-5 py-3.5 text-left">Reported Clinical Reaction</th>
                   <th className="px-5 py-3.5 text-left">Seriousness</th>
-                  <th className="px-5 py-3.5 text-left">Assessment Status</th>
+                  <th className="px-5 py-3.5 text-left">Triage Status</th>
                   <th className="px-5 py-3.5 text-left">Date</th>
                   <th className="px-5 py-3.5 text-right">Action</th>
                 </tr>
@@ -247,9 +253,9 @@ export default function DashboardOverview({ stats, onSelectRun, onNavigateTab, o
             <div className="w-12 h-12 mx-auto rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-3">
               <FileSearch className="w-6 h-6" />
             </div>
-            <h4 className="text-sm font-bold text-slate-800">No Reports Available Yet</h4>
+            <h4 className="text-sm font-bold text-slate-800">No Clinical Cases Available</h4>
             <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-              Get started by submitting your first adverse event report or loading an authoritative test scenario.
+              Submit your first adverse event case or load a clinical test scenario to evaluate the triage pipeline.
             </p>
             <div className="mt-4 flex items-center justify-center space-x-3">
               <button
@@ -257,7 +263,7 @@ export default function DashboardOverview({ stats, onSelectRun, onNavigateTab, o
                 className="inline-flex items-center px-4 py-2 rounded-xl text-xs font-semibold text-white bg-sky-600 hover:bg-sky-700"
               >
                 <PlusCircle className="w-4 h-4 mr-1.5" />
-                Submit First Report
+                New ADR Case
               </button>
               <button
                 onClick={onOpenDemoModal}
